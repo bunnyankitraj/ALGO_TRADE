@@ -1,100 +1,100 @@
-import sqlite_utils
-import sqlite3
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import firestore
 import os
+import json
 from datetime import datetime
 import pytz
 
-DATABASE_PATH = "data/market_data.db"
+# Global client to reuse
+db_client = None
 
 def get_db():
-    # Ensure directory exists for Cloud deployment
-    os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
-    # Using a 30s timeout to handle concurrent access from background tasks
-    conn = sqlite3.connect(DATABASE_PATH, timeout=30)
-    return sqlite_utils.Database(conn)
+    global db_client
+    if db_client:
+        return db_client
+
+    if not firebase_admin._apps:
+        # Check for env var with JSON content (GitHub Actions)
+        # The user should paste the entire content of serviceAccountKey.json into this ENV var
+        creds_json = os.getenv("FIREBASE_CREDENTIALS")
+        
+        if creds_json:
+            try:
+                # Handle case where newlines might be escaped in some CI environments
+                if isinstance(creds_json, str) and "{" in creds_json:
+                    cred_dict = json.loads(creds_json)
+                    cred = credentials.Certificate(cred_dict)
+                else:
+                    # Fallback if it's a path
+                    cred = credentials.Certificate(creds_json)
+            except Exception as e:
+                print(f"Error loading FIREBASE_CREDENTIALS env: {e}")
+                # Fallback to local file for testing
+                cred = credentials.Certificate("firebase_credentials.json")
+        else:
+            # Fallback to local file for local testing
+            if os.path.exists("firebase_credentials.json"):
+                cred = credentials.Certificate("firebase_credentials.json")
+            else:
+                raise Exception("No FIREBASE_CREDENTIALS env var or firebase_credentials.json found.")
+        
+        firebase_admin.initialize_app(cred)
+    
+    db_client = firestore.client()
+    return db_client
 
 def init_db():
-    db = get_db()
-    
-    # News Articles Table
-    if "news_articles" not in db.table_names():
-        db["news_articles"].create({
-            "id": int,
-            "title": str,
-            "url": str,
-            "published_date": str,
-            "source": str,
-            "raw_content": str,
-            "fetched_at": str
-        }, pk="id")
-        # Ensure unique URLs to avoid duplicates
-        db["news_articles"].create_index(["url"], unique=True)
-
-    # Stock Ratings/Targets Table
-    if "stock_ratings" not in db.table_names():
-        db["stock_ratings"].create({
-            "id": int,
-            "article_id": int,
-            "stock_ticker": str,
-            "stock_name": str,
-            "rating": str,  # "Buy", "Sell", "Hold", "Unknown"
-            "broker": str,  # "Jefferies" or "J.P. Morgan"
-            "target_price": float,
-            "currency": str, # "INR", "USD", etc.
-            "entry_date": str
-        }, pk="id", foreign_keys=[("article_id", "news_articles", "id")])
-    else:
-        # Migration: Ensure broker column exists
-        if "currency" not in db["stock_ratings"].columns_dict:
-            db["stock_ratings"].add_column("currency", str)
-        
-        # Always attempt to backfill NULLs (idempotent)
-        db.execute("UPDATE stock_ratings SET broker = 'Jefferies' WHERE broker IS NULL")
-        db.execute("UPDATE stock_ratings SET currency = 'INR' WHERE currency IS NULL")
-
-    # Master Stock List Table
-    if "known_stocks" not in db.table_names():
-        db["known_stocks"].create({
-            "symbol": str,
-            "company_name": str,
-            "isin": str
-        }, pk="symbol")
-        
-        # Enable FTS for fuzzy search
-        try:
-            db["known_stocks"].enable_fts(["symbol", "company_name"], create_triggers=True)
-        except Exception:
-            pass # FTS might already be enabled
-
-    return db
+    """
+    Initializes the Firestore connection.
+    Schema creation is not needed for Firestore (NoSQL).
+    """
+    return get_db()
 
 def save_article(db, title, url, published_date, source, raw_content=""):
     try:
-        # Check if exists
-        try:
-             # Try to insert, if fails due to unique constraint, it raises error
-            return db["news_articles"].insert({
-                "title": title,
-                "url": url,
-                "published_date": published_date,
-                "source": source,
-                "raw_content": raw_content,
-                "fetched_at": datetime.now(pytz.utc).isoformat()
-            }).last_rowid
+        articles_ref = db.collection("articles")
+        
+        # Check for duplicates by URL
+        # We assume URL is unique enough.
+        query = articles_ref.where("url", "==", url).limit(1).stream()
+        existing = list(query)
+        
+        if existing:
+            # Return True/ID to indicate success/existence
+            return existing[0].id
             
-        except sqlite3.IntegrityError:
-            # Article exists, return existing ID
-            return list(db["news_articles"].rows_where("url = ?", [url]))[0]["id"]
+        # Add new
+        # .add() returns (update_time, document_ref)
+        timestamp, doc_ref = articles_ref.add({
+            "title": title,
+            "url": url,
+            "published_date": published_date,
+            "source": source,
+            "raw_content": raw_content,
+            "fetched_at": datetime.now(pytz.utc).isoformat()
+        })
+        return doc_ref.id
             
     except Exception as e:
         print(f"Error saving article {url}: {e}")
         return None
 
-def save_rating(db, article_id, stock_name, rating, target_price, broker, currency="INR"):
-    # Prevent duplicate stock-article pairs for the same broker
-    existing = list(db["stock_ratings"].rows_where("article_id = ? AND stock_name = ? AND broker = ?", [article_id, stock_name, broker]))
-    if not existing:
-        db["stock_ratings"].insert({
+def save_rating(db, article_id, stock_name, rating, target_price, broker, currency="INR", article_data=None):
+    try:
+        ratings_ref = db.collection("ratings")
+        
+        # Check for duplicate
+        query = ratings_ref.where("article_id", "==", article_id)\
+                           .where("stock_name", "==", stock_name)\
+                           .where("broker", "==", broker)\
+                           .limit(1).stream()
+                           
+        if list(query):
+            print(f"Rating already exists for {stock_name} by {broker}")
+            return
+            
+        doc_data = {
             "article_id": article_id,
             "stock_ticker": stock_name.upper().replace(" ", ""),
             "stock_name": stock_name,
@@ -102,5 +102,16 @@ def save_rating(db, article_id, stock_name, rating, target_price, broker, curren
             "broker": broker,
             "target_price": target_price,
             "currency": currency,
-            "entry_date": datetime.now().date().isoformat()
-        })
+            "entry_date": datetime.now().date().isoformat() # Store as YYYY-MM-DD string
+        }
+        
+        # Denormalize article data for easier frontend access
+        if article_data:
+            doc_data["article_title"] = article_data.get("title")
+            doc_data["article_url"] = article_data.get("url")
+            doc_data["article_date"] = article_data.get("published_date")
+            
+        ratings_ref.add(doc_data)
+        print(f"Saved rating: {stock_name} ({rating})")
+    except Exception as e:
+        print(f"Error saving rating: {e}")

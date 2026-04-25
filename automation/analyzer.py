@@ -35,9 +35,12 @@ def get_prompt(text, broker_name):
        - Look for words like 'Buy', 'Sell', 'Hold', 'Accumulate' (map to Buy), 'Underperform' (map to Sell), 'Outperform' (map to Buy).
        - BIFURCATE DECISIVELY: If the article discusses a "Top Pick", "Favorite", or "Upgrade", mark as 'Buy'. If it discusses "Downgrade" or "Caution", mark as 'Sell'.
        - Only use 'Unknown' if there is absolutely no sentiment or recommendation expressed.
-    3. Target Price: Numeric per-share value. 
+    3. Target Price: The ACTUAL per-share price target in the local currency (e.g. Rs 1200, $45.00).
+       - CRITICAL: A percentage upside/return (e.g. "31% upside", "20% potential") is NOT a target price. Set target_price to null if only a % is mentioned.
+       - Only extract a numeric value if the article explicitly states a share price target like "target of Rs 500" or "price target of $45".
+       - Do NOT guess or calculate the target from percentage upside.
     4. Currency: The currency of the target price (e.g., 'INR', 'USD', 'EUR').
-       - If the price symbol is ₹, use 'INR'.
+       - If the price symbol is ₹ or Rs, use 'INR'.
        - If the price symbol is $, use 'USD'.
        - Default to 'INR' for Indian stocks unless explicitly stated otherwise.
     
@@ -45,7 +48,7 @@ def get_prompt(text, broker_name):
     Example: 
     [
         {{"stock_name": "Tata Motors", "rating": "Buy", "target_price": 1200.0, "currency": "INR"}},
-        {{"stock_name": "Southwest Airlines", "rating": "Buy", "target_price": 60.0, "currency": "USD"}}
+        {{"stock_name": "Southwest Airlines", "rating": "Buy", "target_price": null, "currency": "USD"}}
     ]
     """
 

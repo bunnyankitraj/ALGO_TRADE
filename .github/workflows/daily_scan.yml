@@ -13,7 +13,7 @@ jobs:
     env:
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      FIREBASE_CREDENTIALS: ${{ secrets.FIREBASE_CREDENTIALS }}
+      MONGO_URI: ${{ secrets.MONGO_URI }}
 
     steps:
       - uses: actions/checkout@v3

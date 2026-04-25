@@ -183,8 +183,10 @@ else:
             return dt.astimezone(ist_tz)
         
         df['date_dt'] = df['date_dt'].apply(to_ist)
-        # Apply to_ist to fetched_at as well
-        df['fetched_dt'] = pd.to_datetime(df['fetched_at'], errors='coerce').apply(to_ist)
+        # Apply to_ist to fetched_at - parse with UTC awareness
+        df['fetched_dt'] = pd.to_datetime(df['fetched_at'], errors='coerce', utc=True).apply(
+            lambda dt: dt.astimezone(ist_tz) if pd.notnull(dt) else dt
+        )
         df = df.dropna(subset=['date_dt'])
         
         # Latest Fetch Time
@@ -195,7 +197,7 @@ else:
 
         df['display_date'] = df['date_dt'].dt.strftime('%d %b %Y, %I:%M %p')
         df['url'] = df['url'].apply(clean_url)
-        df = df.sort_values('date_dt', ascending=False).drop_duplicates(subset=['stock_name', 'url', 'broker'])
+        df = df.sort_values('date_dt', ascending=False).drop_duplicates(subset=['stock_name', 'title', 'broker'])
 
         # Sidebar Monitoring Table
         st.sidebar.markdown("---")
@@ -423,18 +425,22 @@ else:
                 
                 is_combined_up = len(participating_brokers) >= 2
                 top = s_data.iloc[0]
-                
+
+                # Pick best target: prefer non-null from any row for this stock
+                best_target = s_data['target_price'].dropna()
+                best_target_val = best_target.iloc[0] if not best_target.empty else None
+
                 if is_combined_up:
-                    combined_target = buy_ratings['target_price'].min()
-                    # Use the currency of the first participating broker for the label
+                    combined_target = buy_ratings['target_price'].dropna()
+                    combined_target_val = combined_target.min() if not combined_target.empty else best_target_val
                     cur_code = buy_ratings.iloc[0].get('currency', 'INR')
                     sym = get_currency_symbol(cur_code)
-                    tp_str = f"{sym}{combined_target:,.0f}" if pd.notnull(combined_target) else "N/A"
+                    tp_str = f"{sym}{combined_target_val:,.0f}" if combined_target_val is not None and pd.notnull(combined_target_val) else "N/A"
                     label = f"🚀 **x{len(participating_brokers)}** :blue[**{stock}**] | {tags_str} | Target: **{tp_str}** | 🕒 {latest_time_str}"
                 else:
                     cur_code = top.get('currency', 'INR')
                     sym = get_currency_symbol(cur_code)
-                    tp = f"{sym}{top['target_price']:,.0f}" if pd.notnull(top['target_price']) else "N/A"
+                    tp = f"{sym}{best_target_val:,.0f}" if best_target_val is not None and pd.notnull(best_target_val) else "N/A"
                     label = f":blue[**{stock}**] | {tags_str} | Target: {tp} | 🕒 {latest_time_str}"
                 
                 with st.expander(label, expanded=expand_all):

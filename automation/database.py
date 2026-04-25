@@ -23,8 +23,13 @@ def get_db():
 
     # Create unique indexes to prevent duplicates
     _db["articles"].create_index("url", unique=True)
+    _db["articles"].create_index("title", unique=True)  # also dedupe by title
     _db["ratings"].create_index(
         [("article_id", 1), ("stock_name", 1), ("broker", 1)],
+        unique=True
+    )
+    _db["ratings"].create_index(
+        [("article_title", 1), ("stock_name", 1), ("broker", 1)],
         unique=True
     )
 
@@ -39,8 +44,8 @@ def save_article(db, title, url, published_date, source, raw_content=""):
     try:
         articles_col = db["articles"]
 
-        # Check for duplicates by URL
-        existing = articles_col.find_one({"url": url})
+        # Check for duplicates by URL or title
+        existing = articles_col.find_one({"$or": [{"url": url}, {"title": title}]})
         if existing:
             return str(existing["_id"])
 
@@ -84,7 +89,8 @@ def save_rating(db, article_id, stock_name, rating, target_price, broker, curren
             "broker": broker,
             "target_price": target_price,
             "currency": currency,
-            "entry_date": datetime.now().date().isoformat()
+            "entry_date": datetime.now().date().isoformat(),
+            "fetched_at": datetime.now(pytz.utc).isoformat()  # for broker activity tracking
         }
 
         if article_data:

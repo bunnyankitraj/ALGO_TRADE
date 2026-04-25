@@ -6,6 +6,25 @@ import datetime
 import sys
 import os
 import difflib
+import requests
+
+def scrape_article_text(url, timeout=8):
+    """Scrape first 2000 chars of article text for richer AI context."""
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        resp = requests.get(url, headers=headers, timeout=timeout)
+        if resp.status_code != 200:
+            return ""
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        # Remove scripts/styles
+        for tag in soup(['script', 'style', 'nav', 'footer', 'header']):
+            tag.decompose()
+        paragraphs = soup.find_all('p')
+        text = ' '.join(p.get_text(strip=True) for p in paragraphs)
+        return text[:2500]  # Limit to keep token cost low
+    except Exception as e:
+        return ""
 
 # Add parent directory to path to import fetch_full_list properly
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -81,6 +100,12 @@ def run_job():
         print(f"Fetched {len(articles)} articles for {broker_name}.")
         
         for art in articles:
+            # Scrape full article text for better AI extraction
+            full_text = scrape_article_text(art['url'])
+            if full_text:
+                art['desc'] = full_text
+                print(f"  Scraped full text ({len(full_text)} chars) for: {art['title'][:60]}")
+
             # 4. Save Article
             art_id = save_article(db, art['title'], art['url'], art['published_date'], art['source'], art.get('desc', ''))
             

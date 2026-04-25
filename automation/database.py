@@ -1,72 +1,50 @@
-import firebase_admin
-from firebase_admin import credentials
-from firebase_admin import firestore
+from pymongo import MongoClient
+from pymongo.errors import DuplicateKeyError
 import os
 import json
 from datetime import datetime
 import pytz
 
 # Global client to reuse
-db_client = None
+_client = None
+_db = None
 
 def get_db():
-    global db_client
-    if db_client:
-        return db_client
+    global _client, _db
+    if _db is not None:
+        return _db
 
-    if not firebase_admin._apps:
-        # Check for env var with JSON content (GitHub Actions)
-        # The user should paste the entire content of serviceAccountKey.json into this ENV var
-        creds_json = os.getenv("FIREBASE_CREDENTIALS")
-        
-        if creds_json:
-            try:
-                # Handle case where newlines might be escaped in some CI environments
-                if isinstance(creds_json, str) and "{" in creds_json:
-                    cred_dict = json.loads(creds_json)
-                    cred = credentials.Certificate(cred_dict)
-                else:
-                    # Fallback if it's a path
-                    cred = credentials.Certificate(creds_json)
-            except Exception as e:
-                print(f"Error loading FIREBASE_CREDENTIALS env: {e}")
-                # Fallback to local file for testing
-                cred = credentials.Certificate("firebase_credentials.json")
-        else:
-            # Fallback to local file for local testing
-            if os.path.exists("firebase_credentials.json"):
-                cred = credentials.Certificate("firebase_credentials.json")
-            else:
-                raise Exception("No FIREBASE_CREDENTIALS env var or firebase_credentials.json found.")
-        
-        firebase_admin.initialize_app(cred)
-    
-    db_client = firestore.client()
-    return db_client
+    mongo_uri = os.getenv("MONGO_URI")
+    if not mongo_uri:
+        raise Exception("No MONGO_URI env var found. Please set it in your .env file.")
+
+    _client = MongoClient(mongo_uri)
+    _db = _client["jefferies_db"]
+
+    # Create unique indexes to prevent duplicates
+    _db["articles"].create_index("url", unique=True)
+    _db["ratings"].create_index(
+        [("article_id", 1), ("stock_name", 1), ("broker", 1)],
+        unique=True
+    )
+
+    return _db
+
 
 def init_db():
-    """
-    Initializes the Firestore connection.
-    Schema creation is not needed for Firestore (NoSQL).
-    """
     return get_db()
+
 
 def save_article(db, title, url, published_date, source, raw_content=""):
     try:
-        articles_ref = db.collection("articles")
-        
+        articles_col = db["articles"]
+
         # Check for duplicates by URL
-        # We assume URL is unique enough.
-        query = articles_ref.where("url", "==", url).limit(1).stream()
-        existing = list(query)
-        
+        existing = articles_col.find_one({"url": url})
         if existing:
-            # Return True/ID to indicate success/existence
-            return existing[0].id
-            
-        # Add new
-        # .add() returns (update_time, document_ref)
-        timestamp, doc_ref = articles_ref.add({
+            return str(existing["_id"])
+
+        result = articles_col.insert_one({
             "title": title,
             "url": url,
             "published_date": published_date,
@@ -74,27 +52,31 @@ def save_article(db, title, url, published_date, source, raw_content=""):
             "raw_content": raw_content,
             "fetched_at": datetime.now(pytz.utc).isoformat()
         })
-        return doc_ref.id
-            
+        return str(result.inserted_id)
+
+    except DuplicateKeyError:
+        existing = db["articles"].find_one({"url": url})
+        return str(existing["_id"]) if existing else None
     except Exception as e:
         print(f"Error saving article {url}: {e}")
         return None
 
+
 def save_rating(db, article_id, stock_name, rating, target_price, broker, currency="INR", article_data=None):
     try:
-        ratings_ref = db.collection("ratings")
-        
+        ratings_col = db["ratings"]
+
         # Check for duplicate
-        query = ratings_ref.where("article_id", "==", article_id)\
-                           .where("stock_name", "==", stock_name)\
-                           .where("broker", "==", broker)\
-                           .limit(1).stream()
-                           
-        if list(query):
+        existing = ratings_col.find_one({
+            "article_id": article_id,
+            "stock_name": stock_name,
+            "broker": broker
+        })
+        if existing:
             print(f"Rating already exists for {stock_name} by {broker}")
             return
-            
-        doc_data = {
+
+        doc = {
             "article_id": article_id,
             "stock_ticker": stock_name.upper().replace(" ", ""),
             "stock_name": stock_name,
@@ -102,16 +84,18 @@ def save_rating(db, article_id, stock_name, rating, target_price, broker, curren
             "broker": broker,
             "target_price": target_price,
             "currency": currency,
-            "entry_date": datetime.now().date().isoformat() # Store as YYYY-MM-DD string
+            "entry_date": datetime.now().date().isoformat()
         }
-        
-        # Denormalize article data for easier frontend access
+
         if article_data:
-            doc_data["article_title"] = article_data.get("title")
-            doc_data["article_url"] = article_data.get("url")
-            doc_data["article_date"] = article_data.get("published_date")
-            
-        ratings_ref.add(doc_data)
+            doc["article_title"] = article_data.get("title")
+            doc["article_url"] = article_data.get("url")
+            doc["article_date"] = article_data.get("published_date")
+
+        ratings_col.insert_one(doc)
         print(f"Saved rating: {stock_name} ({rating})")
+
+    except DuplicateKeyError:
+        print(f"Duplicate rating skipped: {stock_name} by {broker}")
     except Exception as e:
         print(f"Error saving rating: {e}")

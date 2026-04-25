@@ -98,9 +98,8 @@ def run_job():
             # The original code did: existing_ratings = list(db["stock_ratings"]...)
             # We can replicate that query if we want to save AI tokens:
             try:
-                ratings_ref = db.collection("ratings")
-                q = ratings_ref.where("article_id", "==", art_id).where("broker", "==", broker_name).limit(1).get()
-                if len(q) > 0:
+                existing = db["ratings"].find_one({"article_id": art_id, "broker": broker_name})
+                if existing:
                     print(f"Skipping analysis for {art['title']} (Rating exists)")
                     continue
             except Exception as e:

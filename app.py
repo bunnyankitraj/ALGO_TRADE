@@ -107,60 +107,56 @@ if st.sidebar.button("🔄 Force Refresh"):
 
 # --- MAIN CONTENT LOGIC ---
 
-# Check if Database is Empty
+# Always show Fetch button at top
+col_h1, col_h2 = st.columns([3, 1])
+with col_h2:
+    if st.button("🔥 Fetch Latest News", help="Scans for news and analyzes with AI", type="primary", use_container_width=True):
+        def bg_task():
+            try:
+                run_job()
+                print("Background Job Success")
+            except Exception as e:
+                print(f"Bg Job Error: {e}")
+        threading.Thread(target=bg_task).start()
+        st.toast("AI analysis started in background! 🏃 Stay tuned.")
+
+# Check if Database is Empty (MongoDB)
 is_db_empty = True
 try:
-    if "known_stocks" in db.table_names() and db["known_stocks"].count > 0:
+    if db["ratings"].count_documents({}, limit=1) > 0:
         is_db_empty = False
 except:
     pass
 
 if is_db_empty:
-    st.warning("🚀 **Welcome! Let's get your tracker set up.**")
-    st.info("The database is currently empty. We need to load the master list of NSE stocks first.")
-    
-    if st.button("📦 Step 1: Initialize Master List", use_container_width=True):
-        with st.spinner("Downloading NSE Equity List..."):
-            try:
-                from fetch_full_list import fetch_and_store_full_list
-                fetch_and_store_full_list()
-                st.success("Master List loaded! Now you can fetch news.")
-                time.sleep(1)
-                st.rerun()
-            except Exception as e:
-                st.error(f"Setup Error: {e}")
-    
+    st.warning("🚀 **Welcome! The database is currently empty.**")
+    st.info("Click **'Fetch Latest News'** (top right) to start scanning for broker research and stock ratings.")
     st.divider()
-    st.caption("Commonly used for fresh Streamlit Cloud deployments.")
+    st.caption("Data is fetched from news sources and analyzed by AI.")
 
 else:
-    # Header Row: Search + Fetch Button
-    col_h1, col_h2 = st.columns([3, 1])
-    with col_h1:
-        st.empty() # Placeholder for search if we want it top-level
-    with col_h2:
-        if st.button("🔥 Fetch Latest News", help="Scans for news and analyzes with AI", type="primary", use_container_width=True):
-            def bg_task():
-                try:
-                    run_job()
-                    print("Background Job Success")
-                except Exception as e:
-                    print(f"Bg Job Error: {e}")
-            threading.Thread(target=bg_task).start()
-            st.toast("AI analysis started in background! 🏃 Stay tuned.")
 
-    # Query Data
-    query = """
-    SELECT 
-        r.entry_date, r.stock_name, r.rating, r.target_price, r.currency, r.broker,
-        a.title, a.source, a.published_date, a.url, a.fetched_at, a.raw_content
-    FROM stock_ratings r
-    JOIN news_articles a ON r.article_id = a.id
-    """
-    
+    # Query Data from MongoDB
     try:
-        df = pd.read_sql_query(query, db.conn)
-    except:
+        rows = []
+        for r in db["ratings"].find({}):
+            rows.append({
+                "entry_date": r.get("entry_date"),
+                "stock_name": r.get("stock_name", ""),
+                "rating": r.get("rating", ""),
+                "target_price": r.get("target_price"),
+                "currency": r.get("currency", "INR"),
+                "broker": r.get("broker", "Unknown"),
+                "title": r.get("article_title", ""),
+                "source": r.get("source", ""),
+                "published_date": r.get("article_date", ""),
+                "url": r.get("article_url", ""),
+                "fetched_at": r.get("fetched_at", ""),
+                "raw_content": r.get("raw_content", ""),
+            })
+        df = pd.DataFrame(rows) if rows else pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error loading data from MongoDB: {e}")
         df = pd.DataFrame()
 
     if df.empty:

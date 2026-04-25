@@ -1,11 +1,12 @@
 streamlit
-GoogleNews
 pandas
-sqlite-utils
 dateparser
 groq
 requests
 python-dotenv
 openai
 pytz
-firebase-admin
+pymongo[srv]
+gnews
+feedparser
+dnspython

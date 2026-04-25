@@ -23,13 +23,8 @@ def get_db():
 
     # Create unique indexes to prevent duplicates
     _db["articles"].create_index("url", unique=True)
-    _db["articles"].create_index("title", unique=True)  # also dedupe by title
     _db["ratings"].create_index(
         [("article_id", 1), ("stock_name", 1), ("broker", 1)],
-        unique=True
-    )
-    _db["ratings"].create_index(
-        [("article_title", 1), ("stock_name", 1), ("broker", 1)],
         unique=True
     )
 

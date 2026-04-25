@@ -206,97 +206,48 @@ else:
         mon_df['Last Update'] = mon_df['fetched_dt'].dt.strftime('%d %b, %I:%M %p')
         st.sidebar.table(mon_df[['broker', 'Last Update']])
 
-        # --- FILTERS (Back on Main Page) ---
-        with st.expander("Dashboard Command Center (Filters)", expanded=False):
-            st.markdown("#### 🏢 Core Selection")
-            all_stocks = sorted(df['stock_name'].unique())
-            available_ratings = sorted(df['rating'].fillna("Unknown").unique().tolist())
-            available_brokers = sorted(df['broker'].fillna("Jefferies").unique().tolist())
+        # --- COMPACT FILTER BAR ---
+        all_stocks = sorted(df['stock_name'].unique())
+        available_ratings = sorted(df['rating'].fillna("Unknown").unique().tolist())
+        available_brokers = sorted(df['broker'].fillna("Jefferies").unique().tolist())
 
-            # Grid Row 1: Stock Selection & Search
-            if ENABLE_POWER_TOOLS:
-                c_s1, c_s2, c_s3 = st.columns([1, 2, 2])
-                with c_s1:
-                    all_stocks_toggle = st.checkbox("Select All Stocks", value=False)
-                with c_s2:
-                    default_stocks = all_stocks if all_stocks_toggle else []
-                    selected_stocks = st.multiselect("Pick Stocks", options=all_stocks, default=default_stocks)
-                with c_s3:
-                    keyword_search = st.text_input("🔍 Catalyst Deep Search", placeholder="e.g. Dividend, Margins, Upgrade", help="Search article titles and descriptions for specific catalysts.")
-            else:
-                c_s1, c_s2 = st.columns([1, 4])
-                with c_s1:
-                    all_stocks_toggle = st.checkbox("Select All Stocks", value=False)
-                with c_s2:
-                    default_stocks = all_stocks if all_stocks_toggle else []
-                    selected_stocks = st.multiselect("Pick Stocks", options=all_stocks, default=default_stocks)
-                keyword_search = None
+        # Row 1: Basic filters — all in one line
+        fc1, fc2, fc3, fc4 = st.columns([3, 2, 2, 2])
+        with fc1:
+            selected_stocks = st.multiselect("🔍 Stocks", options=all_stocks, placeholder="All stocks")
+        with fc2:
+            sel_ratings = st.multiselect("📊 Rating", options=available_ratings, placeholder="All ratings")
+        with fc3:
+            sel_brokers = st.multiselect("🏢 Broker", options=available_brokers, placeholder="All brokers")
+        with fc4:
+            date_preset = st.selectbox("🕒 Period", ["All Time", "Last 24 Hours", "Last 7 Days", "Custom"], index=0, label_visibility="visible")
 
-            # Grid Row 2: Ratings, Brokers & Watchlist
-            if ENABLE_POWER_TOOLS:
-                c1, c2, c3 = st.columns([2, 2, 1])
-                with c1:
-                    all_ratings_toggle = st.checkbox("All Ratings", value=False, key="all_rat")
-                    default_ratings = available_ratings if all_ratings_toggle else []
-                    sel_ratings = st.multiselect("Ratings", options=available_ratings, default=default_ratings)
-                with c2:
-                    all_brokers_toggle = st.checkbox("All Brokers", value=False, key="all_brok")
-                    default_brokers = available_brokers if all_brokers_toggle else []
-                    sel_brokers = st.multiselect("Brokers", options=available_brokers, default=default_brokers)
-                with c3:
-                    st.write("") # Spacer
-                    watchlist_only = st.checkbox("⭐ Watchlist Only", value=False, help="Show only stocks you have starred.")
-            else:
-                c1, c2 = st.columns(2)
-                with c1:
-                    all_ratings_toggle = st.checkbox("All Ratings", value=False, key="all_rat_v2")
-                    default_ratings = available_ratings if all_ratings_toggle else []
-                    sel_ratings = st.multiselect("Ratings", options=available_ratings, default=default_ratings)
-                with c2:
-                    all_brokers_toggle = st.checkbox("All Brokers", value=False, key="all_brok_v2")
-                    default_brokers = available_brokers if all_brokers_toggle else []
-                    sel_brokers = st.multiselect("Brokers", options=available_brokers, default=default_brokers)
-                watchlist_only = False
-            
-            st.divider()
-            
-            # Row 3: Performance Dials
-            st.markdown("#### 🎯 Performance Dials")
-            conv_options = {
-                "All": 1,
-                "Strong (2+)": 2,
-                "High (3+)": 3,
-                "Universal (4+)": 4
-            }
-            conv_label = st.radio("Conviction Power (Min. Broker Agreement)", 
-                                  options=list(conv_options.keys()), 
-                                  horizontal=True,
-                                  help="Isolates stocks that have been rated by at least N different brokers.")
-            min_brokers = conv_options[conv_label]
-            
-            p1, p2, p3, p4 = st.columns(4)
-            with p1:
-                show_only_with_target = st.checkbox("🎯 Targets Only", value=False, help="Show only stocks with explicit numerical price targets.")
-            with p2:
-                strong_buy_only = st.checkbox("🚀 Strong Buy", value=False, help="Filter for only 'Buy' and 'Outperform' ratings.")
-            with p3:
-                fresh_today = st.checkbox("⏰ Fresh Today", value=False, help="Show only updates from the last 24 hours.")
-            with p4:
-                contrarian_radar = st.checkbox("⚖️ Contrarian", value=False, help="Find stocks with conflicting ratings (e.g., Buy vs Sell).")
+        date_range = None
+        if date_preset == "Custom":
+            dr1, dr2 = st.columns(2)
+            with dr1:
+                min_d_val = df['date_dt'].min().date()
+                max_d_val = date.today()
+                date_range = st.date_input("Date Range", value=(min_d_val, max_d_val))
 
-            st.divider()
-            
-            # Row 4: Time Horizon
-            st.markdown("#### ⏳ Time Horizon")
-            ct1, ct2 = st.columns([3, 2])
-            with ct1:
-                date_preset = st.radio("Lookback Period", ["All Time", "Last 24 Hours", "Last 7 Days", "Custom"], horizontal=True)
-            with ct2:
-                date_range = None
-                if date_preset == "Custom":
-                    min_d_val = df['date_dt'].min().date()
-                    max_d_val = date.today()
-                    date_range = st.date_input("Select Range", value=(min_d_val, max_d_val))
+        # Row 2: Advanced filters toggle
+        with st.expander("⚙️ Advanced Filters", expanded=False):
+            adv1, adv2, adv3, adv4, adv5 = st.columns(5)
+            with adv1:
+                conv_options = {"All": 1, "2+ Brokers": 2, "3+ Brokers": 3, "4+ Brokers": 4}
+                conv_label = st.selectbox("Conviction", options=list(conv_options.keys()), index=0)
+                min_brokers = conv_options[conv_label]
+            with adv2:
+                show_only_with_target = st.checkbox("🎯 Targets Only", value=False)
+            with adv3:
+                strong_buy_only = st.checkbox("🚀 Strong Buy", value=False)
+            with adv4:
+                fresh_today = st.checkbox("⏰ Fresh Today", value=False)
+            with adv5:
+                contrarian_radar = st.checkbox("⚖️ Contrarian", value=False)
+        
+        keyword_search = None
+        watchlist_only = False
 
         # Apply Filters
         f_df = df.copy()

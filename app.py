@@ -211,16 +211,27 @@ else:
         available_ratings = sorted(df['rating'].fillna("Unknown").unique().tolist())
         available_brokers = sorted(df['broker'].fillna("Jefferies").unique().tolist())
 
-        # Row 1: Basic filters — all in one line
-        fc1, fc2, fc3, fc4 = st.columns([3, 2, 2, 2])
+        # Reset filters handler
+        def reset_filters():
+            for key in ["f_stocks", "f_ratings", "f_brokers", "f_period", "f_conviction", "f_targets", "f_strongbuy", "f_fresh", "f_contrarian"]:
+                if key in st.session_state:
+                    del st.session_state[key]
+
+        # Row 1: Basic filters + Reset button
+        fc1, fc2, fc3, fc4, fc5 = st.columns([3, 2, 2, 2, 1])
         with fc1:
-            selected_stocks = st.multiselect("🔍 Stocks", options=all_stocks, placeholder="All stocks")
+            selected_stocks = st.multiselect("🔍 Stocks", options=all_stocks, placeholder="All stocks", key="f_stocks")
         with fc2:
-            sel_ratings = st.multiselect("📊 Rating", options=available_ratings, placeholder="All ratings")
+            sel_ratings = st.multiselect("📊 Rating", options=available_ratings, placeholder="All ratings", key="f_ratings")
         with fc3:
-            sel_brokers = st.multiselect("🏢 Broker", options=available_brokers, placeholder="All brokers")
+            sel_brokers = st.multiselect("🏢 Broker", options=available_brokers, placeholder="All brokers", key="f_brokers")
         with fc4:
-            date_preset = st.selectbox("🕒 Period", ["All Time", "Last 24 Hours", "Last 7 Days", "Custom"], index=0, label_visibility="visible")
+            date_preset = st.selectbox("🕒 Period", ["All Time", "Last 24 Hours", "Last 7 Days", "Custom"], index=0, key="f_period")
+        with fc5:
+            st.write("")  # vertical spacer to align button with inputs
+            if st.button("↺ Reset", use_container_width=True, help="Clear all filters"):
+                reset_filters()
+                st.rerun()
 
         date_range = None
         if date_preset == "Custom":
@@ -235,17 +246,17 @@ else:
             adv1, adv2, adv3, adv4, adv5 = st.columns(5)
             with adv1:
                 conv_options = {"All": 1, "2+ Brokers": 2, "3+ Brokers": 3, "4+ Brokers": 4}
-                conv_label = st.selectbox("Conviction", options=list(conv_options.keys()), index=0)
+                conv_label = st.selectbox("Conviction", options=list(conv_options.keys()), index=0, key="f_conviction")
                 min_brokers = conv_options[conv_label]
             with adv2:
-                show_only_with_target = st.checkbox("🎯 Targets Only", value=False)
+                show_only_with_target = st.checkbox("🎯 Targets Only", value=False, key="f_targets")
             with adv3:
-                strong_buy_only = st.checkbox("🚀 Strong Buy", value=False)
+                strong_buy_only = st.checkbox("🚀 Strong Buy", value=False, key="f_strongbuy")
             with adv4:
-                fresh_today = st.checkbox("⏰ Fresh Today", value=False)
+                fresh_today = st.checkbox("⏰ Fresh Today", value=False, key="f_fresh")
             with adv5:
-                contrarian_radar = st.checkbox("⚖️ Contrarian", value=False)
-        
+                contrarian_radar = st.checkbox("⚖️ Contrarian", value=False, key="f_contrarian")
+
         keyword_search = None
         watchlist_only = False
 
